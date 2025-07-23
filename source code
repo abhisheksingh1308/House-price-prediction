@@ -1,0 +1,456 @@
+import numpy as np
+import pandas as pd
+pd.set_option('display.max_columns', None)
+#pd.reset_option('display.max_rows')
+import matplotlib.pyplot as plt
+import matplotlib as mpl 
+import seaborn as sns
+sns.set_theme(style='white') 
+%matplotlib inline
+import re
+import math 
+import plotly.express as px 
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+import six  
+from numpy import random as rand 
+import plotly.io as pio
+pio.renderers.default = "notebook_connected"
+import plotly.figure_factory as ff
+from sklearn.preprocessing import PowerTransformer,FunctionTransformer, KBinsDiscretizer,OrdinalEncoder, OneHotEncoder, LabelEncoder,StandardScaler, MinMaxScaler, PolynomialFeatures
+from sklearn.impute import KNNImputer, SimpleImputer
+from sklearn.pipeline import Pipeline
+from sklearn.compose import ColumnTransformer
+from sklearn.metrics import mutual_info_score,mean_squared_error, r2_score, mean_absolute_error, mean_absolute_percentage_error ,make_scorer
+from sklearn.feature_selection import mutual_info_classif, mutual_info_regression,SelectKBest, f_classif, f_regression,chi2, SelectPercentile,RFE,RFECV ,VarianceThreshold
+from sklearn.model_selection import cross_val_score, cross_validate,StratifiedKFold,GridSearchCV,train_test_split
+from sklearn.cluster import KMeans, DBSCAN, AgglomerativeClustering, SpectralClustering
+from sklearn.utils.class_weight import compute_class_weight
+import shap 
+from lightgbm import LGBMRegressor
+from sklearn.linear_model import ElasticNet, LinearRegression
+from sklearn.tree import DecisionTreeRegressor
+from sklearn.neighbors import KNeighborsRegressor
+from sklearn.ensemble import RandomForestRegressor, StackingRegressor, VotingRegressor, GradientBoostingRegressor
+import xgboost as xgb 
+from catboost import CatBoostRegressor
+from sklearn.svm import SVR
+from kmodes.kprototypes import KPrototypes
+from jcopml.tuning import grid_search_params 
+from imblearn.over_sampling import SMOTE, ADASYN
+from imblearn.combine import SMOTETomek, SMOTEENN
+from imblearn.pipeline import Pipeline as imbpipeline
+from scipy.stats import shapiro, normaltest 
+from itertools import combinations
+from scipy.stats import chi2_contingency,wilcoxon, mannwhitneyu, skew
+import scipy.stats as ss
+from IPython.display import Image 
+import statsmodels.api as sm 
+import warnings
+warnings.filterwarnings("ignore")
+df = pd.read_csv('/kaggle/input/house-prices-advanced-regression-techniques/train.csv').drop(columns=['Id'])
+df_test = pd.read_csv('/kaggle/input/house-prices-advanced-regression-techniques/test.csv').drop(columns=['Id'])
+
+num_cols = df.select_dtypes(exclude=['object']).columns.to_list()
+cat_cols = df.select_dtypes(include=['object']).columns.to_list()
+
+# untuk memisahkan ordinal dan nominal perlu dikerjakan secara manual karena yang mengerti konteks data hanyalah manusia
+cat_ord_cols = ['Street', 'Alley', 'LandContour', 'LandSlope', 'ExterQual', 'ExterCond',
+            'Foundation', 'BsmtQual', 'BsmtCond', 'BsmtExposure', 'BsmtFinType1',
+            'BsmtFinType2', 'HeatingQC','CentralAir', 'KitchenQual', 'Functional',
+            'FireplaceQu','GarageFinish', 'GarageQual', 'GarageCond', 'PavedDrive',
+            'PoolQC', 'Fence', 'SaleCondition' ]
+
+# Nominal 
+cat_nom_cols = ['MSZoning', 'LotShape', 'LotConfig', 'Neighborhood','Condition1', 'Condition2',
+             'BldgType', 'HouseStyle', 'RoofStyle', 'RoofMatl', 'Exterior1st', 'Exterior2nd',
+             'MasVnrType', 'Heating', 'Electrical', 'GarageType', 'MiscFeature', 'SaleType']
+Missing Values
+miss_df = df.isnull().sum().reset_index().set_axis(['Column','Count'], axis=1).sort_values(by='Count', ascending=False, ignore_index=True)
+miss_df = miss_df[miss_df['Count']>0]
+miss_df['Percentage'] = [ round((i / df.shape[0])*100,3) for i in miss_df['Count']] 
+miss_df
+
+fig = px.bar(
+    miss_df.sort_values(by='Percentage', ignore_index=True), 
+    y='Column',
+    x='Percentage', 
+    orientation='h'
+    ).update_traces(marker_color='#2D9596')
+
+fig.update_layout(
+    height=600, 
+    width=900, 
+    title_text='Missing Values',
+    title_x=0.5,
+    title_y=0.97, 
+    template='plotly_white',
+    xaxis = dict(tickmode = 'linear',dtick = 10),
+    showlegend=True,
+    font=dict(size=11)
+    )
+fig.show()
+
+# Berdasarkan dokumentasi dataset yang ada, kolom-kolom kategoric yang missing valuenya dapat diganti dengan None adalah:
+impute_none = ['Alley','BsmtQual','BsmtCond','BsmtExposure','BsmtFinType1','BsmtFinType2','FireplaceQu','GarageType','GarageFinish','GarageQual','GarageCond','PoolQC',
+'Fence','MiscFeature' ]
+
+miss_df = df.isnull().sum().reset_index().set_axis(['Column','Count'], axis=1).sort_values(by='Count', ascending=False, ignore_index=True)
+miss_df = miss_df[miss_df['Count']>0]
+miss_df['Percentage'] = [ round((i / df.shape[0])*100,3) for i in miss_df['Count']] 
+
+fig = px.bar(
+    miss_df.sort_values(by='Percentage', ignore_index=True), 
+    y='Column',
+    x='Percentage', 
+    orientation='h'
+    ).update_traces(marker_color='#2D9596')
+
+fig.update_layout(
+    height=600, 
+    width=900, 
+    title_text='Missing Values',
+    title_x=0.5,
+    title_y=0.97, 
+    template='plotly_white',
+    xaxis = dict(tickmode = 'linear',dtick = 10),
+    showlegend=True,
+    font=dict(size=11)
+    )
+fig.show()
+
+# missing values kolom numeric
+
+miss_df[miss_df['Column'].isin(num_cols)].reset_index(drop=True)
+
+
+missing values kolom categoric
+miss_df[miss_df['Column'].isin(cat_cols)].reset_index(drop=True)
+
+card_df = pd.DataFrame({'Column':cat_cols,'N_unique':[ df[i].nunique() for i in cat_cols]}).sort_values(by='N_unique', ignore_index=True, ascending=False)
+card_df=card_df[card_df['N_unique']>=10]
+card_df
+
+# function untuk mencari outlier
+def find_outliers_IQR(Series):
+   q1=Series.quantile(0.25)
+   q3=Series.quantile(0.75)
+   IQR=q3-q1 
+   upper_bound = (q3+1.5*IQR) 
+   lower_bound = (q1-1.5*IQR)
+   outliers = Series[(Series<lower_bound) | (Series>upper_bound)]
+   return outliers, lower_bound, upper_bound
+
+out_df = pd.DataFrame({
+    'Column':num_cols[:-1],
+    'Lower Bound':[find_outliers_IQR(df[i])[1] for i in num_cols[:-1]],
+    'Upper Bound':[find_outliers_IQR(df[i])[2] for i in num_cols[:-1]],
+    'N outliers':[len(find_outliers_IQR(df[i])[0]) for i in num_cols[:-1]],
+    'N outliers (%)':[round(len(find_outliers_IQR(df[i])[0])/df.shape[0],2) for i in num_cols[:-1]],
+    'Skewness':[ round(skew(df[i], bias=False, nan_policy='omit'),3) for i in num_cols[:-1]],
+    'Scaled Variance':[round(pd.DataFrame(MinMaxScaler().fit_transform(df[[i]]))[0].var(),3) for i in num_cols[:-1]]
+    }).sort_values(by='N outliers', ascending = False, ignore_index=True)
+out_df
+
+fig = plt.figure(figsize=(25,15))
+for i,j in zip(out_df['Column'].head(20), range(1,len(out_df['Column'].head(20))+1)):
+    plt.subplot(5,4,j)
+    sns.boxplot(x=df[i],flierprops={"marker": "x"}, color='#2D9596').set(title=f'{i}',xlabel=None)
+fig.tight_layout()
+
+fig = plt.figure(figsize=(25,15))
+for i,j in zip(out_df['Column'].head(20), range(1,len(out_df['Column'].head(20))+1)):
+    plt.subplot(5,4,j)
+    sns.histplot(x=df[i], color='#2D9596').set(title=f'{i}',xlabel=None)
+fig.tight_layout()
+
+fig = plt.figure(figsize=(25,15)) 
+for i,j in zip(out_df['Column'].head(20), range(1,len(out_df['Column'].head(20))+1)):
+    plt.subplot(5,4,j)
+    sns.regplot(
+        x = df[i], 
+        y = df['SalePrice'],
+        scatter_kws = {
+            "color": "#2D9596", 
+            "alpha": 1},
+        line_kws = {"color": "red"}
+        ).set(title=f'{i}',xlabel=None)
+fig.tight_layout()
+plt.show()
+
+# function untuk mencari asosiasi data categorik
+def cramers_v(confusion_matrix):
+        """ calculate Cramers V statistic for categorial-categorial association.
+            uses correction from Bergsma and Wicher,
+            Journal of the Korean Statistical Society 42 (2013): 323-328
+        """
+        chi2 = ss.chi2_contingency(confusion_matrix)[0]
+        n = confusion_matrix.sum()
+        phi2 = chi2 / n
+        r, k = confusion_matrix.shape
+        phi2corr = max(0, phi2 - ((k-1)*(r-1))/(n-1))
+        rcorr = r - ((r-1)**2)/(n-1)
+        kcorr = k - ((k-1)**2)/(n-1)
+        return np.sqrt(phi2corr / min((kcorr-1), (rcorr-1)))
+def get_corr_mat(df, f=chi2_contingency):
+        columns = df.columns
+        dm = pd.DataFrame(index=columns, columns=columns)
+        for var1, var2 in combinations(columns, 2):
+            cont_table = pd.crosstab(df[var1], df[var2], margins=False)
+            chi2_stat = cramers_v(cont_table.values)
+            dm.loc[var2, var1] = chi2_stat
+            dm.loc[var1, var2] = chi2_stat
+        dm.fillna(1, inplace=True)
+        return dm
+
+# model yanag digunakan
+models = [
+    ['Random Forest',RandomForestRegressor()],
+    ['LGBM',LGBMRegressor(verbose=0)],
+    ['CatBoost',CatBoostRegressor(verbose=0)],
+    ['XGBoost',xgb.XGBRegressor()],
+    ['GradBoost',GradientBoostingRegressor()], 
+]
+
+# dataset splitting
+X = df[num_cols[:-1] + cat_cols]
+y = df['SalePrice']
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.15, random_state=42)
+ordinal_encoder = OrdinalEncoder(handle_unknown= 'use_encoded_value',unknown_value=np.nan)
+most_freq_imputer = SimpleImputer(strategy='most_frequent')
+numeric_pipe = Pipeline([('most_freq_imputer', most_freq_imputer)])
+categoric_pipe = Pipeline([('most_freq_imputer', most_freq_imputer),('ordinal_encoder', ordinal_encoder)])
+column_transformer = ColumnTransformer([('numeric_pipe', numeric_pipe, num_cols[:-1]),('categoric_pipe', categoric_pipe, cat_cols)])
+preprocessor = Pipeline([('column_transformer',column_transformer),('most_freq_imputer', most_freq_imputer)])
+
+
+cv_df = [] 
+for name, j in models:
+    model_pipe = Pipeline([('preprocessor',preprocessor),('model',j)])
+    score = cross_validate(model_pipe,X_train,y_train,cv=5,return_train_score=True, scoring=['r2'])
+    mean_score = [] 
+    for i in score.values(): 
+        mean_score.append(round(np.mean(i),3))
+    cv_df.append(pd.DataFrame({'Attribute':[i for i in score.keys()], f'{name}':mean_score }))
+score = pd.DataFrame(columns=['Attribute'])
+for i in cv_df:
+    score = score.merge(right=i,on='Attribute', how='outer')
+score = score.loc[2:].reset_index(drop=True) 
+score
+# kolom yang akan di drop berdasarkan correlation matrix
+col_drop = ['GarageYrBlt', '1stFlrSF', 'TotRmsAbvGrd', 'GarageArea','Exterior1st', 'GarageCond']
+
+# imputer
+knn_imputer = KNNImputer(n_neighbors=5)
+most_freq_imputer = SimpleImputer(strategy='most_frequent')
+
+# encoder
+ordinal_encoder = OrdinalEncoder(handle_unknown= 'use_encoded_value',unknown_value=np.nan)
+nominal_encoder = OneHotEncoder(handle_unknown='ignore', sparse_output=False)
+def CountEncoder(df):
+    return np.array(pd.DataFrame(df).apply(lambda x: x.map(x.value_counts().to_dict())))
+count_encoder = FunctionTransformer(CountEncoder)
+
+# handling outliers
+def OutliersTransformer(array):    
+    df = pd.DataFrame(array)
+    new_ser = []
+    for i in df.columns:
+        q1=df[i].quantile(0.25)
+        q3= df[i].quantile(0.75)
+        IQR=q3-q1 
+        upper_bound = (q3+1.5*IQR) 
+        lower_bound = (q1-1.5*IQR)
+        df[i] = df[i].apply(lambda x: upper_bound if (x > upper_bound) else x ).apply(lambda x: lower_bound if (x < lower_bound) else x ) 
+    return np.array(df)
+outlier_trans = FunctionTransformer(OutliersTransformer)
+
+# scaler dan transformer
+scaler = MinMaxScaler()
+power = PowerTransformer(method='yeo-johnson')
+
+# numeric pipe
+numeric_pipe = Pipeline([
+    ('imputer', knn_imputer),
+    ('outlier_trans',outlier_trans),
+    ('power', power) ,
+    ('scaler', scaler)])
+
+# ordinal pipe
+ordinal_pipe = Pipeline([
+    ('most_freq_imputer', most_freq_imputer),
+    ('ordinal_encoder', ordinal_encoder),
+    ('scaler', scaler)])
+
+# nominal pipe (OneHot)
+nominal_pipe = Pipeline([
+    ('most_freq_imputer', most_freq_imputer),
+    ('nominal_encoder', nominal_encoder)])
+
+# nominal (CountEncoder)
+nominal_pipe_count = Pipeline([
+    ('most_freq_imputer', most_freq_imputer),
+    ('nominal_encoder', count_encoder),
+    ('scaler', scaler)])
+
+num_var = [ i for i in num_cols[:-1] if i not in col_drop]
+nom_var = [i for i in cat_nom_cols if i not in card_df['Column'].to_list() + col_drop]
+nom_var_count = [i for i in card_df['Column'].to_list() if i not in col_drop]
+
+column_transformer = ColumnTransformer([
+    ('numeric_pipe', numeric_pipe, num_var),
+    ('ordinal_pipe', ordinal_pipe, [i for i in cat_ord_cols if i not in col_drop]),
+    ('nominal_pipe', nominal_pipe, nom_var),
+    ('nominal_pipe_count', nominal_pipe_count, nom_var_count)
+])
+
+# dataset splitting
+X = df[num_cols[:-1] + cat_cols].drop(columns=col_drop)
+y = df['SalePrice']
+
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.15, random_state=42)
+X_train.shape, X_test.shape, y_train.shape, y_test.shape
+
+# function untuk feature selection
+# untuk melakukan anova feature selection, masukkan parameter f_classif untuk klasifikasi, dan f_regression untuk regresi
+# sedangkan untuk mutual information , mutual_info_classif untuk klasifikasi, mutual_info_regression untuk regresi 
+main_color = ['#26577C','#E55604']
+def select_features(X_train, y_train, X_test,method,k):
+    fs = SelectKBest(score_func=method, k=k) # setting jumlah fitur yang ingin diambil
+    fs.fit(X_train, y_train) # pelajari hubungan dari data training
+    X_train_fs = fs.transform(X_train) # transform data train
+    X_test_fs = fs.transform(X_test) # transform data test
+    return X_train_fs, X_test_fs, fs
+# function visualisasi feature selection
+def viz_feature_select(var,feature_selection_score,title_,height):
+    df = pd.DataFrame({'Variable':var,'Score':[round(i,2) for i in feature_selection_score]}).sort_values(by='Score', ignore_index=True,ascending=False)
+    df['Color'] = main_color[0] 
+    df['Color'][:5] = main_color[1] # top 5 kolom terbaik, bedakan warnanya
+    fig = go.Figure([go.Bar(y=df['Variable'], x=df['Score'],text= [ '{a} (%{b})'.format(a=i,b=j) for i, j in zip(df['Score'],[round((i / df['Score'].sum())* 100,2) for i in df['Score']])],
+                            textposition='outside',
+                            marker={'color': df['Color']},
+                            orientation='h')]) 
+    fig.update_layout(autosize=False,width=1200,height=height,margin=dict(l=10,r=10,b=10,t=40,pad=0),xaxis_range=[0,df['Score'].max() + (df['Score'].max()/2)],
+            title=dict(text=title_,font=dict(size=20),x=0.5),
+            yaxis={'categoryorder':'array','categoryarray':df.sort_values(by='Score', ascending=True)['Variable'].to_list()}, template='plotly_white')  
+    return df,fig
+
+# preprocessor untuk feature selection 
+preprocessor_fs = Pipeline([('column_transformer',column_transformer),('most_freq_imputer', most_freq_imputer)])
+
+X_train_fs, X_test_fs, fs = select_features(
+    pd.DataFrame(preprocessor_fs.fit_transform(X_train,y_train)), 
+    y_train, 
+    pd.DataFrame(preprocessor_fs.transform(X_test)) , 
+    mutual_info_regression,
+    'all') 
+# untuk mendapatkan nama  kolom yang sudah di preprocess
+trans_num = preprocessor_fs[0].transformers_[0][1].get_feature_names_out().tolist()
+trans_num = preprocessor_fs[0].transformers_[0][2]
+trans_ord = preprocessor_fs[0].transformers_[1][1].get_feature_names_out().tolist()
+trans_nom = preprocessor_fs[0].transformers_[2][1].get_feature_names_out().tolist()
+trans_nom_count= preprocessor_fs[0].transformers_[3][2]
+trans_col = trans_num + trans_ord + trans_nom + trans_nom_count
+
+mutual_df = pd.DataFrame({'col':trans_col,'score':fs.scores_}).sort_values(by='score', ignore_index=True, ascending=False)
+
+# viz_feature_select(trans_col,fs.scores_,'Mutual Information Feature Selection',2200)[1].show()
+viz_feature_select(mutual_df['col'].head(10),mutual_df['score'].head(10),'Mutual Information Feature Selection (Top 10)',600)[1].show()
+percent_useless_feature = mutual_df[mutual_df['scor
+
+percent_useless_feature = mutual_df[mutual_df['score']==0].shape[0] / mutual_df.shape[0]
+print('Persentase Feature yang tidak berguna :',round(percent_useless_feature*100,3),'%')
+
+selection = SelectPercentile(mutual_info_regression, percentile=80)
+
+# preprocessor
+preprocessor = Pipeline([
+    ('column_transformer',column_transformer),
+    ('most_freq_imputer', most_freq_imputer),
+    ('selection',selection)
+                    ])
+
+scoring = {
+    'RMSE': make_scorer(mean_squared_error, squared=False),
+    'R2': make_scorer(r2_score),
+}
+
+# cross validation
+cv_df = [] 
+for name, j in models:
+    model_pipe = Pipeline([('preprocessor',preprocessor),('model',j)])
+    score = cross_validate(model_pipe,X_train,y_train,cv=5,return_train_score=True, scoring=scoring)
+    mean_score = [] 
+    for i in score.values(): 
+        mean_score.append(round(np.mean(i),3))
+    cv_df.append(pd.DataFrame({'Attribute':[i for i in score.keys()], f'{name}':mean_score }))
+score = pd.DataFrame(columns=['Attribute'])
+for i in cv_df:
+    score = score.merge(right=i,on='Attribute', how='outer')
+score = score.loc[2:].reset_index(drop=True) 
+
+model_param = {'Random Forest':[grid_search_params.rf_params,RandomForestRegressor()],
+'LGBM':[{'algo__n_estimators':[100,200,300],'algo__learning_rate':[0.01,0.1,],'algo__num_leaves':[20,50]},LGBMRegressor() ] ,
+'CatBoost':[{'algo__max_depth': [ 3,6,10]}, CatBoostRegressor(verbose=0)],
+'XGBoost':[{'algo__max_depth': [3,6,10],'algo__colsample_bytree': [0.4, 0.6, 0.8],'algo__n_estimators': [100, 150, 200]},xgb.XGBRegressor()],
+'GradBoost':[{'algo__max_depth': [3,6,10],'algo__n_estimators': [100, 150, 200]},GradientBoostingRegressor()]}
+
+model_col = []
+gs_score = [] 
+for i,j in model_param.items():
+    model_pipe = Pipeline([ ('prep',preprocessor),('algo',j[1])])
+    param = j[0]
+    model = GridSearchCV(estimator=model_pipe,param_grid=param, cv=5, scoring=make_scorer(mean_squared_error, squared=False), verbose=0)
+    model.fit(X_train, y_train)
+    gs_score.append({'model':i,'best score':model.best_score_,'best params':model.best_params_,'estimator':model.best_estimator_}) 
+    model_col.append(model) 
+gs_df = pd.DataFrame(gs_score, columns=['model','best score','best params','estimator']).sort_values(by='best score',ignore_index=True,ascending=True)
+best_estimator = gs_df.iloc[0,3]
+gs_df 
+
+y_pred = best_estimator.predict(X_test)
+score_r2= r2_score(y_true=y_test, y_pred=y_pred)
+score_rmse = mean_squared_error(y_true=y_test, y_pred=y_pred,squared=False)
+print('R2 :', score_r2)
+print('RMSE :', score_rmse)
+
+vt_reg = VotingRegressor([
+    (gs_df.iloc[0,0],gs_df.iloc[0,3]),
+    (gs_df.iloc[1,0],gs_df.iloc[1,3]),
+    (gs_df.iloc[2,0],gs_df.iloc[2,3])
+])
+vt_reg.fit(X_train,y_train)
+
+y_pred = vt_reg.predict(X_test) 
+score_r2= r2_score(y_true=y_test, y_pred=y_pred)
+score_rmse = mean_squared_error(y_true=y_test, y_pred=y_pred,squared=False)
+print('R2 :', score_r2)
+print('RMSE :', score_rmse)
+
+plt.figure(figsize=(7,7))
+sns.histplot(y_pred, label='predicted', color='orange')
+sns.histplot(y_test, label='actual')
+plt.legend()
+plt.show()
+
+fig, axes = plt.subplots( nrows=1, ncols=3,figsize = (17,5))
+
+# col 1
+residual = y_test - y_pred
+sns.scatterplot(x=y_pred, y=residual,ax=axes[0]).axhline(y=0.5, color='red', linestyle='-')
+axes[0].set_title('Residual Plot')
+
+# col 2
+sns.histplot(residual, kde=True, ax=axes[1]).set_title('Residual Distribution')
+
+# col 3
+pd.Series(y_pred).name = 'Predicted Revenue'
+sns.scatterplot( x=y_pred, y=y_test, ax=axes[2]).set_title('Revenue vs Predicted Revenue')
+point1 = [0, 0]
+point2 = [140000, 140000]
+x_plot = [point1[0], point2[0]] 
+y_plot = [point1[1], point2[1]]
+plt.plot([0,y_pred.max()], [0,y_pred.max()], color='red')
+
+plt.tight_layout()
+plt.show()
